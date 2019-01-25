@@ -336,6 +336,13 @@ static ngx_command_t  ngx_http_ssl_commands[] = {
       offsetof(ngx_http_ssl_srv_conf_t, dyn_rec_threshold),
       NULL },
 
+    { ngx_string("ssl_prefer_chacha"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_ssl_srv_conf_t, prefer_chacha),
+      NULL },
+
       ngx_null_command
 };
 
@@ -683,6 +690,7 @@ ngx_http_ssl_create_srv_conf(ngx_conf_t *cf)
     sscf->dyn_rec_size_lo = NGX_CONF_UNSET_SIZE;
     sscf->dyn_rec_size_hi = NGX_CONF_UNSET_SIZE;
     sscf->dyn_rec_threshold = NGX_CONF_UNSET_UINT;
+    sscf->prefer_chacha = NGX_CONF_UNSET;
 
     return sscf;
 }
@@ -771,7 +779,7 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
                              4229);
     ngx_conf_merge_uint_value(conf->dyn_rec_threshold, prev->dyn_rec_threshold,
                              40);
-
+    ngx_conf_merge_value(conf->prefer_chacha, prev->prefer_chacha, 0);
     conf->ssl.log = cf->log;
 
     if (conf->enable) {
@@ -855,6 +863,12 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 #ifdef TLSEXT_TYPE_next_proto_neg
     SSL_CTX_set_next_protos_advertised_cb(conf->ssl.ctx,
                                           ngx_http_ssl_npn_advertised, NULL);
+#endif
+
+#ifdef SSL_OP_PRIORITIZE_CHACHA
+    if (conf->prefer_chacha) {
+        SSL_CTX_set_options(conf->ssl.ctx, SSL_OP_PRIORITIZE_CHACHA);
+    }
 #endif
 
     if (ngx_http_ssl_compile_certificates(cf, conf) != NGX_OK) {
