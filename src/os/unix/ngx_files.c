@@ -26,6 +26,87 @@ ngx_uint_t  ngx_file_aio = 1;
 
 #endif
 
+#if (NGX_THREADS) && (NGX_HAVE_PREADV2_NOWAIT)
+#define LO_HI_LONG(val) \
+ (long) (val), \
+ (long) (((uint64_t) (val)) >> 32)
+
+#if !(NGX_HAVE_PREADV2_NOWAIT_SYSCALL) || (NGX_LINUX)
+ngx_uint_t  ngx_preadv2_nowait = 1;
+#else
+ngx_uint_t  ngx_preadv2_nowait = 0;
+#endif
+
+ssize_t
+ngx_preadv2_file(ngx_file_t *file, u_char *buf, size_t size, off_t offset)
+{
+    ssize_t  n;
+#if _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L
+    size_t left;
+#endif
+    struct iovec   iovs[1];
+
+    if (!ngx_preadv2_nowait) {
+        return NGX_AGAIN;
+    }
+
+    iovs[0].iov_base = buf;
+    iovs[0].iov_len = size;
+
+#if (NGX_HAVE_PREADV2_NOWAIT_SYSCALL)
+    /* Call preadv2 via syscall() as it may be not defined in glibc */
+    n = syscall(SYS_preadv2, file->fd, iovs, 1, LO_HI_LONG(offset), RWF_NOWAIT);
+#else
+    /* Call preadv2 glibc wrapper as usual */
+    n = preadv2(file->fd, iovs, 1, offset, RWF_NOWAIT);
+#endif
+
+    if (n == -1) { /* let's analyze the return code */
+        switch (ngx_errno) {
+            case EAGAIN:
+                ngx_log_debug(NGX_LOG_DEBUG_CORE, file->log, 0,
+                              "preadv2() will block on \"%s\"",
+                              file->name.data);
+                return NGX_AGAIN;
+            case EINVAL:
+	        case EOPNOTSUPP:
+                /* Most possible case - not supported RWF_NOWAIT */
+                ngx_log_error(NGX_LOG_ERR, file->log, ngx_errno,
+                              "preadv2() \"%s\" failed RWF_NOWAIT",
+                              file->name.data);
+                ngx_preadv2_nowait = 0;
+                return NGX_AGAIN;
+            default:
+                return NGX_AGAIN;
+
+        }
+    }
+
+    /* Check if we read partial file */
+    if ((size_t)n < size) {
+        /* blocked on partial read */
+        ngx_log_debug2(NGX_LOG_DEBUG_CORE, file->log, 0,
+                       "preadv2() blocked partial on \"%s\" "
+                       "with read size %uz", file->name.data, n);
+        /* we have to skip the partly readed buffer because the stack
+         * relies on full buffer reading. Partial readings are treated
+         * as errors. All we can do is just advise kernel to load
+         * file into page cache in sequental manner while we are creating
+         * thread task to read the file
+         */
+#if _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L
+        left = file->info.st_size - offset;
+        posix_fadvise(file->fd, offset, left, POSIX_FADV_SEQUENTIAL);
+#endif
+        return NGX_AGAIN;
+    }
+
+    file->offset += n;
+
+    return n;
+}
+#endif
+
 
 ssize_t
 ngx_read_file(ngx_file_t *file, u_char *buf, size_t size, off_t offset)
@@ -97,6 +178,9 @@ ngx_thread_read(ngx_file_t *file, u_char *buf, size_t size, off_t offset,
 {
     ngx_thread_task_t      *task;
     ngx_thread_file_ctx_t  *ctx;
+#if (NGX_HAVE_PREADV2_NOWAIT)
+    ssize_t  n;
+#endif
 
     ngx_log_debug4(NGX_LOG_DEBUG_CORE, file->log, 0,
                    "thread read: %d, %p, %uz, %O",
@@ -105,6 +189,15 @@ ngx_thread_read(ngx_file_t *file, u_char *buf, size_t size, off_t offset,
     task = file->thread_task;
 
     if (task == NULL) {
+#if (NGX_HAVE_PREADV2_NOWAIT)
+        n = ngx_preadv2_file(file, buf, size, offset);
+        if (n != NGX_AGAIN) {
+            ngx_log_debug2(NGX_LOG_DEBUG_CORE, file->log, 0,
+                           "preadv2 non blocking: \"%s\" - %uz",
+                           file->name.data, n);
+            return n;
+        }
+#endif
         task = ngx_thread_task_alloc(pool, sizeof(ngx_thread_file_ctx_t));
         if (task == NULL) {
             return NGX_ERROR;

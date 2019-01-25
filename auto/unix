@@ -704,6 +704,33 @@ ngx_feature_test="char buf[1]; struct iovec vec[1]; ssize_t n;
 . auto/feature
 
 
+# preadv2() was introduced in Linux 4.6, glibc 2.26
+# RWF_NOWAIT flag was introduced in Linux 4.14
+
+ngx_feature="preadv2()"
+ngx_feature_name="NGX_HAVE_PREADV2_NOWAIT"
+ngx_feature_run=no
+ngx_feature_incs='#include <sys/uio.h>'
+ngx_feature_path=
+ngx_feature_libs=
+ngx_feature_test="char buf[1]; struct iovec vec[1]; ssize_t n;
+                  vec[0].iov_base = buf;
+                  vec[0].iov_len = 1;
+                  n = preadv2(0, vec, 1, 0, RWF_NOWAIT);
+                  if (n == -1) return 1"
+. auto/feature
+
+
+if [ $ngx_found = no ]; then
+    have=SYS_preadv2 value=327 . auto/define
+    have=RWF_NOWAIT  value=0x00000008 . auto/define
+    have=NGX_HAVE_PREADV2_NOWAIT . auto/have
+    have=NGX_HAVE_PREADV2_NOWAIT_SYSCALL . auto/have
+    ngx_include='#include <sys/uio.h>' . auto/include
+    ngx_include='#include <fcntl.h>' . auto/include
+fi
+
+
 # strerrordesc_np(), introduced in glibc 2.32
 
 ngx_feature="strerrordesc_np()"
