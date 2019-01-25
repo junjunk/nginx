@@ -179,6 +179,8 @@ ssize_t ngx_atosz(u_char *line, size_t n);
 off_t ngx_atoof(u_char *line, size_t n);
 time_t ngx_atotm(u_char *line, size_t n);
 ngx_int_t ngx_hextoi(u_char *line, size_t n);
+int64_t ngx_hextoi64(u_char *line, size_t n);
+int64_t ngx_atoi64(u_char *line, size_t n);
 
 u_char *ngx_hex_dump(u_char *dst, u_char *src, size_t len);
 
