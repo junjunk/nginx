@@ -377,6 +377,12 @@ static ngx_http_variable_t  ngx_http_core_variables[] = {
 
     { ngx_string("tcpinfo_rcv_space"), NULL, ngx_http_variable_tcpinfo,
       3, NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
+    { ngx_string("tcpinfo_lost"), NULL, ngx_http_variable_tcpinfo,
+      4, NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
+    { ngx_string("tcpinfo_retrans"), NULL, ngx_http_variable_tcpinfo,
+      5, NGX_HTTP_VAR_NOCACHEABLE, 0 },
 #endif
 
     { ngx_string("http_"), NULL, ngx_http_variable_unknown_header_in,
@@ -1101,14 +1107,24 @@ static ngx_int_t
 ngx_http_variable_tcpinfo(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     uintptr_t data)
 {
-    struct tcp_info  ti;
+    struct tcp_info  *ti;
     socklen_t        len;
     uint32_t         value;
 
     len = sizeof(struct tcp_info);
-    if (getsockopt(r->connection->fd, IPPROTO_TCP, TCP_INFO, &ti, &len) == -1) {
-        v->not_found = 1;
-        return NGX_OK;
+    ti = r->ti;
+    if (ti == NULL) {
+        ti = ngx_pnalloc(r->pool, len);
+        if (ti == NULL) {
+            return NGX_ERROR;
+        }
+
+        if (getsockopt(r->connection->fd, IPPROTO_TCP, TCP_INFO, ti, &len) == -1) {
+            v->not_found = 1;
+            ngx_pfree(r->pool, ti);
+            return NGX_OK;
+        }
+        r->ti = ti;
     }
 
     v->data = ngx_pnalloc(r->pool, NGX_INT32_LEN);
@@ -1118,19 +1134,27 @@ ngx_http_variable_tcpinfo(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 
     switch (data) {
     case 0:
-        value = ti.tcpi_rtt;
+        value = ti->tcpi_rtt;
         break;
 
     case 1:
-        value = ti.tcpi_rttvar;
+        value = ti->tcpi_rttvar;
         break;
 
     case 2:
-        value = ti.tcpi_snd_cwnd;
+        value = ti->tcpi_snd_cwnd;
         break;
 
     case 3:
-        value = ti.tcpi_rcv_space;
+        value = ti->tcpi_rcv_space;
+        break;
+
+    case 4:
+        value = ti->tcpi_lost;
+        break;
+
+    case 5:
+        value = ti->tcpi_retrans;
         break;
 
     /* suppress warning */
