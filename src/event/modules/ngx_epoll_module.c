@@ -100,6 +100,35 @@ typedef struct {
     ngx_uint_t  aio_requests;
 } ngx_epoll_conf_t;
 
+#if (NGX_HAVE_FILE_AIO)
+
+/* Stolen from kernel arch/x86_64.h */
+#ifdef __x86_64__
+#define read_barrier() __asm__ __volatile__("lfence" ::: "memory")
+#else
+#ifdef __i386__
+#define read_barrier() __asm__ __volatile__("" : : : "memory")
+#else
+#define read_barrier() __sync_synchronize()
+#endif
+#endif
+
+/* Stolen from kernel fs/aio.c */
+#define AIO_RING_MAGIC                  0xa10a10a1
+struct aio_ring {
+	unsigned        id;     /* kernel internal index number */
+	unsigned        nr;     /* number of io_events */
+	unsigned        head;
+	unsigned        tail;
+	unsigned        magic;
+	unsigned        compat_features;
+	unsigned        incompat_features;
+	unsigned        header_length;  /* size of aio_ring */
+    struct io_event events[0];
+};
+
+#endif
+
 
 static ngx_int_t ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer);
 #if (NGX_HAVE_EVENTFD)
@@ -241,6 +270,39 @@ static int
 io_getevents(aio_context_t ctx, long min_nr, long nr, struct io_event *events,
     struct timespec *tmo)
 {
+    /* Code based on cloudflare-blog */
+    ngx_int_t i = 0;
+
+	struct aio_ring *ring = (struct aio_ring *)ctx;
+	if (ring == NULL || ring->magic != AIO_RING_MAGIC) {
+		goto do_syscall;
+	}
+
+	while (i < nr) {
+		unsigned head = ring->head;
+		if (head == ring->tail) {
+			/* There are no more completions */
+			break;
+		} else {
+			/* There is another completion to reap */
+			events[i] = ring->events[head];
+			read_barrier();
+			ring->head = (head + 1) % ring->nr;
+			i++;
+		}
+	}
+
+	if (i == 0 && tmo != NULL && tmo->tv_sec == 0 &&
+	    tmo->tv_nsec == 0) {
+		/* Requested non blocking operation. */
+		return 0;
+	}
+
+	if (i && i >= min_nr) {
+		return i;
+	}
+
+do_syscall:
     return syscall(SYS_io_getevents, ctx, min_nr, nr, events, tmo);
 }
 
