@@ -94,6 +94,9 @@ struct ngx_ssl_connection_s {
 
     u_char                      early_buf;
 
+    time_t                      handshake_sec;
+    ngx_uint_t                  handshake_msec;
+
     unsigned                    handshaked:1;
     unsigned                    handshake_rejected:1;
     unsigned                    renegotiation:1;
@@ -281,6 +284,8 @@ ngx_int_t ngx_ssl_get_client_v_start(ngx_connection_t *c, ngx_pool_t *pool,
 ngx_int_t ngx_ssl_get_client_v_end(ngx_connection_t *c, ngx_pool_t *pool,
     ngx_str_t *s);
 ngx_int_t ngx_ssl_get_client_v_remain(ngx_connection_t *c, ngx_pool_t *pool,
+    ngx_str_t *s);
+ngx_int_t ngx_ssl_get_handshake_time(ngx_connection_t *c, ngx_pool_t *pool,
     ngx_str_t *s);
 
 
