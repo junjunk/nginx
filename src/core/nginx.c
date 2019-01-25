@@ -1444,23 +1444,20 @@ ngx_set_cpu_affinity(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 
 ngx_cpuset_t *
-ngx_get_cpu_affinity(ngx_uint_t n)
+ngx_get_cpu_affinity(ngx_uint_t n, void *conf)
 {
 #if (NGX_HAVE_CPU_AFFINITY)
     ngx_uint_t        i, j;
     ngx_cpuset_t     *mask;
-    ngx_core_conf_t  *ccf;
+    ngx_core_conf_t  *ccf = conf;
 
     static ngx_cpuset_t  result;
-
-    ccf = (ngx_core_conf_t *) ngx_get_conf(ngx_cycle->conf_ctx,
-                                           ngx_core_module);
 
     if (ccf->cpu_affinity == NULL) {
         return NULL;
     }
 
-    if (ccf->cpu_affinity_auto) {
+    if (ccf && ccf->cpu_affinity_auto) {
         mask = &ccf->cpu_affinity[ccf->cpu_affinity_n - 1];
 
         for (i = 0, j = n; /* void */ ; i++) {

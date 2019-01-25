@@ -1014,6 +1014,34 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
         }
 
 #endif
+
+#if (NGX_HAVE_SCHED_SETAFFINITY) && (defined SO_INCOMING_CPU)
+        {
+            ngx_core_conf_t  *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx,
+                                           ngx_core_module);
+
+
+            ngx_cpuset_t *cpu_affinity = ngx_get_cpu_affinity(ls[i].worker, ccf);
+            ngx_int_t cpu;
+            socklen_t clen = sizeof(cpu);
+            for (cpu = 0; cpu_affinity && cpu < CPU_SETSIZE; cpu++) {
+                if (CPU_ISSET(cpu, cpu_affinity)) {
+                    ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
+                                  "setsockopt(SO_INCOMING_CPU): using cpu #%ui"
+                                  " for socket with worker #%ui", cpu, ls[i].worker);
+                    if (setsockopt(ls[i].fd, SOL_SOCKET, SO_INCOMING_CPU, &cpu, clen)
+                        == -1)
+                    {
+                        ngx_log_error(NGX_LOG_WARN, cycle->log, ngx_socket_errno,
+                            "setsockopt(SO_INCOMING_CPU) "
+                            "for worker socket #%ui failed, ignored",
+                            cpu);
+                    }
+                    break;
+                }
+            }
+        }
+#endif
     }
 
     return;

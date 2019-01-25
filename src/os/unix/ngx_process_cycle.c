@@ -851,7 +851,7 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
     }
 
     if (worker >= 0) {
-        cpu_affinity = ngx_get_cpu_affinity(worker);
+        cpu_affinity = ngx_get_cpu_affinity(worker, ccf);
 
         if (cpu_affinity) {
             ngx_setaffinity(cpu_affinity, cycle->log);
