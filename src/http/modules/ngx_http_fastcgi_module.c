@@ -748,6 +748,13 @@ ngx_http_fastcgi_handler(ngx_http_request_t *r)
         r->request_body_no_buffering = 1;
     }
 
+    if (!flcf->upstream.pass_request_body) {
+        rc = ngx_http_discard_request_body(r);
+        if (rc != NGX_OK) {
+            return rc;
+        }
+    }
+
     rc = ngx_http_read_client_request_body(r, ngx_http_upstream_init);
 
     if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {

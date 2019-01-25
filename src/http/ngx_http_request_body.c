@@ -19,6 +19,7 @@ static ngx_int_t ngx_http_read_discarded_request_body(ngx_http_request_t *r);
 static ngx_int_t ngx_http_discard_request_body_filter(ngx_http_request_t *r,
     ngx_buf_t *b);
 static ngx_int_t ngx_http_test_expect(ngx_http_request_t *r);
+static ngx_int_t ngx_http_test_only_expect(ngx_http_request_t *r);
 
 static ngx_int_t ngx_http_request_body_filter(ngx_http_request_t *r,
     ngx_chain_t *in);
@@ -584,10 +585,6 @@ ngx_http_discard_request_body(ngx_http_request_t *r)
     }
 #endif
 
-    if (ngx_http_test_expect(r) != NGX_OK) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
     rev = r->connection->read;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, rev->log, 0, "http set discard body");
@@ -596,11 +593,22 @@ ngx_http_discard_request_body(ngx_http_request_t *r)
         ngx_del_timer(rev);
     }
 
+    size = r->header_in->last - r->header_in->pos;
+
+    if (ngx_http_test_only_expect(r) == 2 && !size) {
+       /* Client is waiting 100-continue, so we can send
+        * immediate response with a final status code
+        * or pass request to proxy server (RFC7231)
+        */
+        r->headers_in.content_length_n = 0;
+        r->discard_body = 1;
+        return NGX_OK;
+    }
+
     if (r->headers_in.content_length_n <= 0 && !r->headers_in.chunked) {
         return NGX_OK;
     }
 
-    size = r->header_in->last - r->header_in->pos;
 
     if (size || r->headers_in.chunked) {
         rc = ngx_http_discard_request_body_filter(r, r->header_in);
@@ -869,9 +877,8 @@ ngx_http_discard_request_body_filter(ngx_http_request_t *r, ngx_buf_t *b)
 
 
 static ngx_int_t
-ngx_http_test_expect(ngx_http_request_t *r)
+ngx_http_test_only_expect(ngx_http_request_t *r)
 {
-    ngx_int_t   n;
     ngx_str_t  *expect;
 
     if (r->expect_tested
@@ -882,7 +889,7 @@ ngx_http_test_expect(ngx_http_request_t *r)
 #endif
        )
     {
-        return NGX_OK;
+        return 0;
     }
 
     r->expect_tested = 1;
@@ -894,6 +901,18 @@ ngx_http_test_expect(ngx_http_request_t *r)
                            sizeof("100-continue") - 1)
            != 0)
     {
+        return 1;
+    }
+    return 2;
+}
+
+
+static ngx_int_t
+ngx_http_test_expect(ngx_http_request_t *r)
+{
+    ngx_int_t   n;
+
+    if (ngx_http_test_only_expect(r) < 2) {
         return NGX_OK;
     }
 
