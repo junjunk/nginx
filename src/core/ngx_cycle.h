@@ -119,6 +119,7 @@ typedef struct {
     char                    **environment;
 
     ngx_uint_t                transparent;  /* unsigned  transparent:1; */
+    ngx_uint_t                capability_netadmin; /* unsiged  cap_netadmin:1; */
 } ngx_core_conf_t;
 
 

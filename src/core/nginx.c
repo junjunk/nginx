@@ -152,6 +152,13 @@ static ngx_command_t  ngx_core_commands[] = {
       0,
       NULL },
 
+    { ngx_string("capability_netadmin"),
+      NGX_MAIN_CONF|NGX_DIRECT_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      0,
+      offsetof(ngx_core_conf_t, capability_netadmin),
+      NULL },
+
       ngx_null_command
 };
 
