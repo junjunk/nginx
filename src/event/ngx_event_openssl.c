@@ -4649,6 +4649,18 @@ ngx_ssl_get_curves(ngx_connection_t *c, ngx_pool_t *pool, ngx_str_t *s)
 
 
 ngx_int_t
+ngx_ssl_get_ecdhe_curve_name(ngx_connection_t *c, ngx_pool_t *pool, ngx_str_t *s)
+{
+    const char *ciph = SSL_get_cipher_name(c->ssl->connection);
+    if (ciph && !strncmp("ECDHE-", ciph, 6))
+        s->data = (u_char *) OBJ_nid2sn(SSL_get_shared_curve(c->ssl->connection, 0));
+    else
+        s->data = (u_char *) OBJ_nid2sn(NID_undef);
+    return NGX_OK;
+}
+
+
+ngx_int_t
 ngx_ssl_get_session_id(ngx_connection_t *c, ngx_pool_t *pool, ngx_str_t *s)
 {
     u_char        *buf;
