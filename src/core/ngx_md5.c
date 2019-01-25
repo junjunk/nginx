@@ -10,7 +10,6 @@
 #include <ngx_core.h>
 #include <ngx_md5.h>
 
-
 static const u_char *ngx_md5_body(ngx_md5_t *ctx, const u_char *data,
     size_t size);
 
@@ -62,6 +61,8 @@ void
 ngx_md5_final(u_char result[16], ngx_md5_t *ctx)
 {
     size_t  used, free;
+    union { u_char *res8; uint32_t *res32; } res;
+    res.res8 = result;
 
     used = (size_t) (ctx->bytes & 0x3f);
 
@@ -79,6 +80,18 @@ ngx_md5_final(u_char result[16], ngx_md5_t *ctx)
     ngx_memzero(&ctx->buffer[used], free - 8);
 
     ctx->bytes <<= 3;
+
+#if (NGX_HAVE_LITTLE_ENDIAN)
+
+    ctx->buffer64[7] = ctx->bytes;
+
+#else /* !NGX_HAVE_LITTLE_ENDIAN */
+
+#if (NGX_HAVE_GCC_BSWAP64)
+
+    ctx->buffer64[7] = __builtin_bswap64(ctx->bytes);
+
+#else
     ctx->buffer[56] = (u_char) ctx->bytes;
     ctx->buffer[57] = (u_char) (ctx->bytes >> 8);
     ctx->buffer[58] = (u_char) (ctx->bytes >> 16);
@@ -87,9 +100,27 @@ ngx_md5_final(u_char result[16], ngx_md5_t *ctx)
     ctx->buffer[61] = (u_char) (ctx->bytes >> 40);
     ctx->buffer[62] = (u_char) (ctx->bytes >> 48);
     ctx->buffer[63] = (u_char) (ctx->bytes >> 56);
+#endif
+
+#endif
+
 
     (void) ngx_md5_body(ctx, ctx->buffer, 64);
+#if (NGX_HAVE_LITTLE_ENDIAN)
 
+    res.res32[0] = ctx->a;
+    res.res32[1] = ctx->b;
+    res.res32[2] = ctx->c;
+    res.res32[3] = ctx->d;
+
+#else /* !NGX_HAVE_LITTLE_ENDIAN */
+
+#if (NGX_HAVE_GCC_BSWAP32)
+    res.res32[0] = __builtin_bswap32(ctx->a);
+    res.res32[1] = __builtin_bswap32(ctx->b);
+    res.res32[2] = __builtin_bswap32(ctx->c);
+    res.res32[3] = __builtin_bswap32(ctx->d);
+#else
     result[0] = (u_char) ctx->a;
     result[1] = (u_char) (ctx->a >> 8);
     result[2] = (u_char) (ctx->a >> 16);
@@ -106,7 +137,10 @@ ngx_md5_final(u_char result[16], ngx_md5_t *ctx)
     result[13] = (u_char) (ctx->d >> 8);
     result[14] = (u_char) (ctx->d >> 16);
     result[15] = (u_char) (ctx->d >> 24);
+#endif
 
+
+#endif
     ngx_memzero(ctx, sizeof(*ctx));
 }
 

@@ -16,7 +16,11 @@
 typedef struct {
     uint64_t  bytes;
     uint32_t  a, b, c, d;
-    u_char    buffer[64];
+    union {
+        u_char    buffer[64];
+        uint64_t  buffer64[8];
+    };
+
 } ngx_md5_t;
 
 
