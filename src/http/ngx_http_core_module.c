@@ -4191,6 +4191,11 @@ ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             continue;
         }
 
+        if (ngx_strncmp(value[n].data, "tcp_congestion=", 15) == 0) {
+            lsopt.tcp_congestion = (char *) &value[n].data[15];
+            continue;
+        }
+
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                            "invalid parameter \"%V\"", &value[n]);
         return NGX_CONF_ERROR;

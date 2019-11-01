@@ -101,6 +101,7 @@ typedef struct {
 #if (NGX_HAVE_DEFERRED_ACCEPT && defined SO_ACCEPTFILTER)
     char                      *accept_filter;
 #endif
+    char                      *tcp_congestion;
 } ngx_http_listen_opt_t;
 
 

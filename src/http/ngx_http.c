@@ -1806,6 +1806,8 @@ ngx_http_add_listening(ngx_conf_t *cf, ngx_http_conf_addr_t *addr)
     ls->reuseport = addr->opt.reuseport;
 #endif
 
+    ls->tcp_congestion = addr->opt.tcp_congestion;
+
     return ls;
 }
 

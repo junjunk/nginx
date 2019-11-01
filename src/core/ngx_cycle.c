@@ -528,6 +528,14 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                                      ls[i].sockaddr, ls[i].socklen, 1)
                     == NGX_OK)
                 {
+                    /*
+                     * TCP Congestion control can not be reset to default
+                     * value, so socket should be recreated
+                     */
+                    if (!nls[n].tcp_congestion && ls[i].tcp_congestion) {
+                        continue;
+                    }
+
                     nls[n].fd = ls[i].fd;
                     nls[n].inherited = ls[i].inherited;
                     nls[n].previous = &ls[i];

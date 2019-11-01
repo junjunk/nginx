@@ -763,6 +763,18 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
             }
         }
 
+        if (ls[i].tcp_congestion != 0) {
+            if (setsockopt(ls[i].fd, IPPROTO_TCP, TCP_CONGESTION,
+                           (const void *) ls[i].tcp_congestion,
+                           ngx_strlen(ls[i].tcp_congestion))
+                == -1)
+            {
+                ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_socket_errno,
+                              "setsockopt(TCP_CONGESTION, \"%s\") %V failed, ignored",
+                              ls[i].tcp_congestion, &ls[i].addr_text);
+            }
+        }
+
 #if (NGX_HAVE_KEEPALIVE_TUNABLE)
 
         if (ls[i].keepidle) {
