@@ -1218,6 +1218,11 @@ ngx_close_connection(ngx_connection_t *c)
     ngx_err_t     err;
     ngx_uint_t    log_error, level;
     ngx_socket_t  fd;
+#if (NGX_LINUX)
+#ifdef BIO_get_ktls_send
+    struct timeval     tv;
+#endif
+#endif
 
     if (c->fd == (ngx_socket_t) -1) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "connection already closed");
@@ -1270,6 +1275,26 @@ ngx_close_connection(ngx_connection_t *c)
     if (c->shared) {
         return;
     }
+
+#if (NGX_LINUX)
+#ifdef BIO_get_ktls_send
+
+    /*
+     * set connection write timeout very small on
+     * Kernel TLS connection to prevent blocking
+     * of close() syscall.
+     */
+    tv.tv_sec = 0;
+    tv.tv_usec = 100;
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const void *)&tv,
+                    sizeof(struct timeval)) == -1)
+    {
+        ngx_log_error(NGX_LOG_ALERT, c->log, ngx_socket_errno,
+                        "setsockopt(SO_SNDTIMEO) failed");
+
+    }
+#endif
+#endif
 
     if (ngx_close_socket(fd) == -1) {
 
