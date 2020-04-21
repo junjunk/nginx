@@ -343,6 +343,13 @@ static ngx_command_t  ngx_http_ssl_commands[] = {
       offsetof(ngx_http_ssl_srv_conf_t, prefer_chacha),
       NULL },
 
+    { ngx_string("ssl_ktls"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_ssl_srv_conf_t, ktls),
+      NULL },
+
       ngx_null_command
 };
 
@@ -451,6 +458,9 @@ static ngx_http_variable_t  ngx_http_ssl_vars[] = {
 
     { ngx_string("ssl_handshake_time"), NULL, ngx_http_ssl_variable,
       (uintptr_t) ngx_ssl_get_handshake_time, NGX_HTTP_VAR_CHANGEABLE, 0 },
+
+    { ngx_string("ssl_ktls_status"), NULL, ngx_http_ssl_variable,
+      (uintptr_t) ngx_ssl_get_ktls_status, NGX_HTTP_VAR_CHANGEABLE, 0 },
 
       ngx_http_null_variable
 };
@@ -691,6 +701,7 @@ ngx_http_ssl_create_srv_conf(ngx_conf_t *cf)
     sscf->dyn_rec_size_hi = NGX_CONF_UNSET_SIZE;
     sscf->dyn_rec_threshold = NGX_CONF_UNSET_UINT;
     sscf->prefer_chacha = NGX_CONF_UNSET;
+    sscf->ktls = NGX_CONF_UNSET;
 
     return sscf;
 }
@@ -780,6 +791,7 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_uint_value(conf->dyn_rec_threshold, prev->dyn_rec_threshold,
                              40);
     ngx_conf_merge_value(conf->prefer_chacha, prev->prefer_chacha, 0);
+    ngx_conf_merge_value(conf->ktls, prev->ktls, 0);
     conf->ssl.log = cf->log;
 
     if (conf->enable) {
@@ -870,6 +882,15 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
         SSL_CTX_set_options(conf->ssl.ctx, SSL_OP_PRIORITIZE_CHACHA);
     }
 #endif
+
+    if (!conf->ktls) {
+#ifdef SSL_MODE_NO_KTLS_TX
+        SSL_CTX_set_mode(conf->ssl.ctx, SSL_MODE_NO_KTLS_TX);
+#endif
+#ifdef SSL_MODE_NO_KTLS_RX
+        SSL_CTX_set_mode(conf->ssl.ctx, SSL_MODE_NO_KTLS_RX);
+#endif
+    }
 
     if (ngx_http_ssl_compile_certificates(cf, conf) != NGX_OK) {
         return NGX_CONF_ERROR;

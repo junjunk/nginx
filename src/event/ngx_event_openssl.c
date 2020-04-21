@@ -5078,6 +5078,23 @@ ngx_ssl_get_early_data(ngx_connection_t *c, ngx_pool_t *pool, ngx_str_t *s)
 
 
 ngx_int_t
+ngx_ssl_get_ktls_status(ngx_connection_t *c, ngx_pool_t *pool, ngx_str_t *s)
+{
+    s->len = 0;
+
+#if (NGX_LINUX)
+#ifdef BIO_get_ktls_send
+    if(c && c->ssl && c->ssl->ktls) {
+        ngx_str_set(s, "1");
+    }
+#endif
+#endif
+
+    return NGX_OK;
+}
+
+
+ngx_int_t
 ngx_ssl_get_server_name(ngx_connection_t *c, ngx_pool_t *pool, ngx_str_t *s)
 {
 #ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
