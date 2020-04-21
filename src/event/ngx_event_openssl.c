@@ -47,6 +47,12 @@ static void ngx_ssl_write_handler(ngx_event_t *wev);
 static ssize_t ngx_ssl_write_early(ngx_connection_t *c, u_char *data,
     size_t size);
 #endif
+#if (NGX_LINUX) && (NGX_HAVE_SENDFILE)
+#ifdef BIO_get_ktls_send
+static ssize_t ngx_ssl_linux_sendfile(ngx_connection_t *c, ngx_buf_t *file,
+    size_t size);
+#endif
+#endif
 static void ngx_ssl_read_handler(ngx_event_t *rev);
 static void ngx_ssl_shutdown_handler(ngx_event_t *ev);
 static void ngx_ssl_connection_error(ngx_connection_t *c, int sslerr,
@@ -1629,6 +1635,9 @@ ngx_ssl_create_connection(ngx_ssl_t *ssl, ngx_connection_t *c, ngx_uint_t flags)
 
     sc->connection = SSL_new(ssl->ctx);
 
+#ifdef BIO_get_ktls_send
+    sc->ktls = 0;
+#endif
     if (sc->connection == NULL) {
         ngx_ssl_error(NGX_LOG_ALERT, c->log, 0, "SSL_new() failed");
         return NGX_ERROR;
@@ -1746,6 +1755,14 @@ ngx_ssl_handshake(ngx_connection_t *c)
         c->recv_chain = ngx_ssl_recv_chain;
         c->send_chain = ngx_ssl_send_chain;
 
+#if (NGX_LINUX) && (NGX_HAVE_SENDFILE)
+#ifdef BIO_get_ktls_send
+        if(BIO_get_ktls_send(SSL_get_wbio(c->ssl->connection))) {
+            c->ssl->ktls = 1;
+            c->send_chain = ngx_ssl_linux_sendfile_chain;
+        }
+#endif
+#endif
 #ifndef SSL_OP_NO_RENEGOTIATION
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 #ifdef SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS
@@ -2493,6 +2510,338 @@ ngx_ssl_write_handler(ngx_event_t *wev)
     c->read->handler(c->read);
 }
 
+#if (NGX_LINUX) && (NGX_HAVE_SENDFILE64)
+
+#ifndef NGX_SENDFILE_MAXSIZE
+#define NGX_SENDFILE_MAXSIZE  2147483647L
+#endif
+
+#ifdef BIO_get_ktls_send
+ngx_chain_t *
+ngx_ssl_linux_sendfile_chain(ngx_connection_t *c, ngx_chain_t *in, off_t limit)
+{
+    int            tcp_nodelay;
+    off_t          send, prev_send;
+    size_t         file_size, sent;
+    ssize_t        n;
+    ngx_err_t      err;
+    ngx_buf_t     *file;
+    ngx_event_t   *wev;
+    ngx_chain_t   *cl;
+    ngx_iovec_t    header;
+    struct iovec   headers[NGX_IOVS_PREALLOCATE];
+
+    wev = c->write;
+
+    if (!wev->ready) {
+        return in;
+    }
+
+
+    /* the maximum limit size is 2G-1 - the page size */
+
+    if (limit == 0 || limit > (off_t) (NGX_SENDFILE_MAXSIZE - ngx_pagesize)) {
+        limit = NGX_SENDFILE_MAXSIZE - ngx_pagesize;
+    }
+
+
+    send = 0;
+
+    header.iovs = headers;
+    header.nalloc = NGX_IOVS_PREALLOCATE;
+
+    for ( ;; ) {
+        prev_send = send;
+
+        /* create the iovec and coalesce the neighbouring bufs */
+
+        cl = ngx_output_chain_to_iovec(&header, in, limit - send, c->log);
+
+        if (cl == NGX_CHAIN_ERROR) {
+            return NGX_CHAIN_ERROR;
+        }
+
+        send += header.size;
+
+        /* set TCP_CORK if there is a header before a file */
+
+        if (c->tcp_nopush == NGX_TCP_NOPUSH_UNSET
+            && header.count != 0
+            && cl
+            && cl->buf->in_file)
+        {
+            /* the TCP_CORK and TCP_NODELAY are mutually exclusive */
+
+            if (c->tcp_nodelay == NGX_TCP_NODELAY_SET) {
+
+                tcp_nodelay = 0;
+
+                if (setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY,
+                               (const void *) &tcp_nodelay, sizeof(int)) == -1)
+                {
+                    err = ngx_socket_errno;
+
+                    /*
+                     * there is a tiny chance to be interrupted, however,
+                     * we continue a processing with the TCP_NODELAY
+                     * and without the TCP_CORK
+                     */
+
+                    if (err != NGX_EINTR) {
+                        wev->error = 1;
+                        ngx_connection_error(c, err,
+                                             "setsockopt(TCP_NODELAY) failed");
+                        return NGX_CHAIN_ERROR;
+                    }
+
+                } else {
+                    c->tcp_nodelay = NGX_TCP_NODELAY_UNSET;
+
+                    ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                                   "no tcp_nodelay");
+                }
+            }
+
+            if (c->tcp_nodelay == NGX_TCP_NODELAY_UNSET) {
+
+                if (ngx_tcp_nopush(c->fd) == -1) {
+                    err = ngx_socket_errno;
+
+                    /*
+                     * there is a tiny chance to be interrupted, however,
+                     * we continue a processing without the TCP_CORK
+                     */
+
+                    if (err != NGX_EINTR) {
+                        wev->error = 1;
+                        ngx_connection_error(c, err,
+                                             ngx_tcp_nopush_n " failed");
+                        return NGX_CHAIN_ERROR;
+                    }
+
+                } else {
+                    c->tcp_nopush = NGX_TCP_NOPUSH_SET;
+
+                    ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                                   "tcp_nopush");
+                }
+            }
+        }
+
+        /* get the file buf */
+
+        if (header.count == 0 && cl && cl->buf->in_file && send < limit) {
+            file = cl->buf;
+
+            /* coalesce the neighbouring file bufs */
+
+            file_size = (size_t) ngx_chain_coalesce_file(&cl, limit - send);
+
+            send += file_size;
+#if 1
+            if (file_size == 0) {
+                ngx_debug_point();
+                return NGX_CHAIN_ERROR;
+            }
+#endif
+
+            n = ngx_ssl_linux_sendfile(c, file, file_size);
+
+            if (n == NGX_ERROR) {
+                return NGX_CHAIN_ERROR;
+            }
+
+            if (n == NGX_DONE) {
+                /* thread task posted */
+                return in;
+            }
+
+            sent = (n == NGX_AGAIN) ? 0 : n;
+
+            in = ngx_chain_update_sent(in, sent);
+
+        } else {
+            /*
+             * here we should write each buffer in iovec
+             * by separate SSL_write call and check all the
+             * possible errors like in ngx_ssl_write()
+             * cl contains first chain to send via sendfile()
+             * so we can send chain by chain stopping at in == cl
+             */
+            n = 0;
+            sent = 0;
+
+            while (in && in != cl) {
+                if (ngx_buf_special(in->buf)) {
+                    in = in->next;
+                    continue;
+                }
+
+                n = ngx_ssl_write(c, in->buf->pos, in->buf->last - in->buf->pos);
+
+                if (n == NGX_ERROR) {
+                    return NGX_CHAIN_ERROR;
+                }
+
+                if (n == NGX_AGAIN) {
+                    break;
+                }
+
+                sent += n;
+                in->buf->pos += n;
+
+                if (in->buf->pos == in->buf->last) {
+                    in = in->next;
+                }
+            }
+
+        }
+
+        c->sent += sent;
+
+        if (n == NGX_AGAIN) {
+            wev->ready = 0;
+            return in;
+        }
+
+        if ((size_t) (send - prev_send) != sent) {
+
+            /*
+             * sendfile() on Linux 4.3+ might be interrupted at any time,
+             * and provides no indication if it was interrupted or not,
+             * so we have to retry till an explicit EAGAIN
+             *
+             * sendfile() in threads can also report less bytes written
+             * than we are prepared to send now, since it was started in
+             * some point in the past, so we again have to retry
+             */
+
+            send = prev_send + sent;
+            continue;
+        }
+
+        if (send >= limit || in == NULL) {
+            return in;
+        }
+    }
+}
+
+
+static ssize_t
+ngx_ssl_linux_sendfile(ngx_connection_t *c, ngx_buf_t *file, size_t size)
+{
+    off_t      offset;
+    ssize_t    n;
+    ngx_err_t  err;
+    int        sslerr;
+
+    offset = file->file_pos;
+
+eintr:
+
+    ngx_ssl_clear_error(c->log);
+
+    ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                   "SSL sendfile to write: @%O %uz", file->file_pos, size);
+
+    n = SSL_sendfile(c->ssl->connection, file->file->fd, offset, size, 0);
+
+    if (n < 0) {
+        sslerr = SSL_get_error(c->ssl->connection, n);
+
+        err = (sslerr == SSL_ERROR_SYSCALL) ? ngx_errno : 0;
+
+        ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0, "SSL_get_error: %d", sslerr);
+        if (err) {
+            switch (err) {
+            case NGX_EAGAIN:
+                ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, err,
+                            "sendfile() (from SSL_sendfile) is not ready");
+                return NGX_AGAIN;
+
+            case NGX_EINTR:
+                ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, err,
+                            "sendfile() (from SSL_sendfile)  was interrupted");
+                goto eintr;
+
+            default:
+                c->write->error = 1;
+                ngx_connection_error(c, err, "sendfile() (from SSL_sendfile) failed");
+                return NGX_ERROR;
+            }
+        }
+        if (sslerr == SSL_ERROR_WANT_WRITE) {
+
+            if (c->ssl->saved_read_handler) {
+
+                c->read->handler = c->ssl->saved_read_handler;
+                c->ssl->saved_read_handler = NULL;
+                c->read->ready = 1;
+
+                if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+                    return NGX_ERROR;
+                }
+
+                ngx_post_event(c->read, &ngx_posted_events);
+            }
+
+            c->write->ready = 0;
+            return NGX_AGAIN;
+        }
+
+        if (sslerr == SSL_ERROR_WANT_READ) {
+
+            ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                        "SSL_write: want read");
+
+            c->read->ready = 0;
+
+            if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+                return NGX_ERROR;
+            }
+
+            /*
+            * we do not set the timer because there is already
+            * the write event timer
+            */
+
+            if (c->ssl->saved_read_handler == NULL) {
+                c->ssl->saved_read_handler = c->read->handler;
+                c->read->handler = ngx_ssl_read_handler;
+            }
+
+            return NGX_AGAIN;
+        }
+
+        c->ssl->no_wait_shutdown = 1;
+        c->ssl->no_send_shutdown = 1;
+        c->write->error = 1;
+
+        ngx_ssl_connection_error(c, sslerr, err, "SSL_sendfile() failed");
+
+        return NGX_ERROR;
+    }
+
+    if (n == 0) {
+        /*
+         * if sendfile returns zero, then someone has truncated the file,
+         * so the offset became beyond the end of the file
+         */
+
+        ngx_log_error(NGX_LOG_ALERT, c->log, 0,
+                      "SSL_sendfile() reported that \"%s\" was truncated at %O",
+                      file->file->name.data, file->file_pos);
+
+        return NGX_ERROR;
+    }
+
+    ngx_log_debug3(NGX_LOG_DEBUG_EVENT, c->log, 0, "SSL_sendfile: %z of %uz @%O",
+                   n, size, file->file_pos);
+
+    return n;
+}
+#endif
+#endif
 
 /*
  * OpenSSL has no SSL_writev() so we copy several bufs into our 16K buffer

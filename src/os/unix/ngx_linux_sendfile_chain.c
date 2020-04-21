@@ -302,12 +302,15 @@ eintr:
 #if (NGX_THREADS)
 
 typedef struct {
-    ngx_buf_t     *file;
-    ngx_socket_t   socket;
-    size_t         size;
+    ngx_buf_t      *file;
+    ngx_socket_t    socket;
+#if (NGX_HTTP_SSL)
+    ngx_ssl_conn_t *ssl_connection;
+#endif
+    size_t          size;
 
-    size_t         sent;
-    ngx_err_t      err;
+    size_t          sent;
+    ngx_err_t       err;
 } ngx_linux_sendfile_ctx_t;
 
 
@@ -387,6 +390,13 @@ ngx_linux_sendfile_thread(ngx_connection_t *c, ngx_buf_t *file, size_t size)
     }
 
     ctx->file = file;
+#if (NGX_HTTP_SSL)
+#ifdef BIO_get_ktls_send
+    if (c->ssl && c->ssl->ktls)
+        ctx->ssl_connection = c->ssl->connection;
+    else
+#endif
+#endif
     ctx->socket = c->fd;
     ctx->size = size;
 
@@ -415,7 +425,13 @@ ngx_linux_sendfile_thread_handler(void *data, ngx_log_t *log)
     offset = file->file_pos;
 
 again:
-
+#if (NGX_HTTP_SSL)
+#ifdef BIO_get_ktls_send
+    if (ctx->ssl_connection)
+        n = SSL_sendfile(ctx->ssl_connection, file->file->fd, offset, ctx->size, 0);
+    else
+#endif
+#endif
     n = sendfile(ctx->socket, file->file->fd, &offset, ctx->size);
 
     if (n == -1) {

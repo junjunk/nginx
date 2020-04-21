@@ -124,6 +124,9 @@ struct ngx_ssl_connection_s {
     unsigned                    in_ocsp:1;
     unsigned                    early_preread:1;
     unsigned                    write_blocked:1;
+#ifdef BIO_get_ktls_send
+    unsigned                    ktls:1;
+#endif
 };
 
 
@@ -316,7 +319,12 @@ ngx_int_t ngx_ssl_shutdown(ngx_connection_t *c);
 void ngx_cdecl ngx_ssl_error(ngx_uint_t level, ngx_log_t *log, ngx_err_t err,
     char *fmt, ...);
 void ngx_ssl_cleanup_ctx(void *data);
-
+#if (NGX_LINUX) && (NGX_HAVE_SENDFILE64)
+#ifdef BIO_get_ktls_send
+ngx_chain_t *ngx_ssl_linux_sendfile_chain(ngx_connection_t *c, ngx_chain_t *in,
+    off_t limit);
+#endif
+#endif
 
 extern int  ngx_ssl_connection_index;
 extern int  ngx_ssl_server_conf_index;
