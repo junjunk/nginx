@@ -2697,8 +2697,6 @@ ngx_ssl_linux_sendfile_chain(ngx_connection_t *c, ngx_chain_t *in, off_t limit)
 
         }
 
-        c->sent += sent;
-
         if (n == NGX_AGAIN) {
             wev->ready = 0;
             return in;
@@ -2834,6 +2832,8 @@ eintr:
 
         return NGX_ERROR;
     }
+
+    c->sent += n;
 
     ngx_log_debug3(NGX_LOG_DEBUG_EVENT, c->log, 0, "SSL_sendfile: %z of %uz @%O",
                    n, size, file->file_pos);
