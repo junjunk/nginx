@@ -397,6 +397,18 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
 
         ls[i].deferred_accept = 1;
 #endif
+
+        olen = sizeof(int);
+        if (getsockopt(ls[i].fd, IPPROTO_TCP, TCP_NOTSENT_LOWAT, (void *) &ls[i].notsent_lowat,
+                       &olen)
+            == -1)
+        {
+            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_socket_errno,
+                          "getsockopt(TCP_NOTSENT_LOWAT) %V failed, ignored",
+                          &ls[i].addr_text);
+
+            ls[i].notsent_lowat = -1;
+        }
     }
 
     return NGX_OK;
@@ -747,6 +759,17 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
                 ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_socket_errno,
                               "setsockopt(SO_SNDBUF, %d) %V failed, ignored",
                               ls[i].sndbuf, &ls[i].addr_text);
+            }
+        }
+
+        if (ls[i].notsent_lowat > 0) {
+            if (setsockopt(ls[i].fd, IPPROTO_TCP, TCP_NOTSENT_LOWAT,
+                           (const void *) &ls[i].notsent_lowat, sizeof(int))
+                == -1)
+            {
+                ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_socket_errno,
+                              "setsockopt(TCP_NOTSENT_LOWAT, %d) %V failed, ignored",
+                              ls[i].notsent_lowat, &ls[i].addr_text);
             }
         }
 

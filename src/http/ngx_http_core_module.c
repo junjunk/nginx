@@ -3984,6 +3984,34 @@ ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
                 return NGX_CONF_ERROR;
             }
 
+            if (lsopt.notsent_lowat == -2) {
+                /* TCP_NOTSENT_LOWAT auto configure */
+                lsopt.notsent_lowat = lsopt.sndbuf >> 1;
+            }
+            
+            continue;
+        }
+
+        if (ngx_strncmp(value[n].data, "notsent_lowat=", 14) == 0) {
+            size.len = value[n].len - 14;
+            size.data = value[n].data + 14;
+            
+            if (ngx_strncmp(size.data, "auto", 4) == 0) {
+                lsopt.notsent_lowat = lsopt.sndbuf > 0 ? lsopt.sndbuf >> 1
+                                                       : -2;
+            } else {
+                lsopt.notsent_lowat = ngx_parse_size(&size);
+            }
+
+            lsopt.set = 1;
+            lsopt.bind = 1;
+
+            if (lsopt.sndbuf == NGX_ERROR) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                   "invalid notsent_lowat \"%V\"", &value[n]);
+                return NGX_CONF_ERROR;
+            }
+
             continue;
         }
 

@@ -86,6 +86,7 @@ typedef struct {
     int                        backlog;
     int                        rcvbuf;
     int                        sndbuf;
+    int                        notsent_lowat;
 #if (NGX_HAVE_SETFIB)
     int                        setfib;
 #endif

@@ -28,6 +28,7 @@ struct ngx_listening_s {
     int                 backlog;
     int                 rcvbuf;
     int                 sndbuf;
+    int                 notsent_lowat;
 #if (NGX_HAVE_KEEPALIVE_TUNABLE)
     int                 keepidle;
     int                 keepintvl;
