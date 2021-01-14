@@ -589,6 +589,20 @@ ngx_output_chain_copy_buf(ngx_output_chain_ctx_t *ctx)
         if (ctx->aio_handler) {
             n = ngx_file_aio_read(src->file, dst->pos, (size_t) size,
                                   src->file_pos, ctx->pool);
+#if (NGX_HAVE_FILE_IOURING)
+           if (n > 0 && n < size) {
+                ngx_log_error(NGX_LOG_INFO, ctx->pool->log, 0,
+                      ngx_read_file_n " Try again, only read %z of %O from \"%s\"",
+                      n, size, src->file->name.data);
+
+                src->file_pos += n;
+                dst->last += n;
+
+                n = ngx_file_aio_read(src->file, dst->pos+n, (size_t) size-n,
+                                  src->file_pos, ctx->pool);
+
+            }
+#endif
             if (n == NGX_AGAIN) {
                 ctx->aio_handler(ctx, src->file);
                 return NGX_AGAIN;

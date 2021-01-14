@@ -531,6 +531,30 @@ if [ $NGX_FILE_AIO = YES ]; then
     fi
 
     if [ $ngx_found = no ]; then
+        ngx_feature="Linux AIO support(IO_URING)"
+        ngx_feature_name="NGX_HAVE_FILE_AIO"
+        ngx_feature_incs="#include <liburing.h>"
+        ngx_feature_path=
+        ngx_feature_libs="-luring"
+        ngx_feature_test="struct io_uring ring;
+                        struct io_uring_params params;
+                        int ret;
+                        memset(&params, 0, sizeof(params));
+                        ret = io_uring_queue_init_params(64, &ring, &params);
+                        if (ret < 0) return 1;
+                        if (!(params.features & IORING_FEAT_FAST_POLL)) return 1;
+                        io_uring_queue_exit(&ring)"
+        . auto/feature
+
+        if [ $ngx_found = yes ]; then
+            have=NGX_HAVE_EVENTFD . auto/have
+            have=NGX_HAVE_FILE_IOURING . auto/have
+            CORE_LIBS="$CORE_LIBS -luring"
+            CORE_SRCS="$CORE_SRCS $LINUX_AIO_SRCS"
+        fi
+    fi
+
+    if [ $ngx_found = no ]; then
 
         ngx_feature="Linux AIO support"
         ngx_feature_name="NGX_HAVE_FILE_AIO"

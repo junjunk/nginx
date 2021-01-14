@@ -160,7 +160,11 @@ struct ngx_event_aio_s {
     size_t                     nbytes;
 #endif
 
+#if (NGX_HAVE_FILE_IOURING)
+    struct iovec               iov;
+#else
     ngx_aiocb_t                aiocb;
+#endif
     ngx_event_t                event;
 };
 
