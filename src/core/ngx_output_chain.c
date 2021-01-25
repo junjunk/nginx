@@ -531,6 +531,13 @@ ngx_output_chain_copy_buf(ngx_output_chain_ctx_t *ctx)
 
     size = ngx_buf_size(src);
     size = ngx_min(size, dst->end - dst->pos);
+#if (NGX_HAVE_FILE_IOURING)
+    /*
+     * check if already received part of the request in previous,
+     * calculate the remain length
+     */
+    size = ngx_min(size, dst->end - dst->last);
+#endif
 
     sendfile = ctx->sendfile && !ctx->directio;
 
