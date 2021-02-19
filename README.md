@@ -20,6 +20,7 @@ This is fork of nginx web server with my own useful patches and patches found in
 
 ### New options
 
+* Use `io_uring` as Async io interface. Based on work of Ping Zhao at Intel. Needs `ulimit -l unlimited
 * TLS Dynamic Record Size suggested by CloudFlare in https://blog.cloudflare.com/optimizing-tls-over-tcp-to-reduce-latency/
 * `ssl_prefer_chacha (on|off)` option to prefer ChaCha-Poly cipher in OpenSSL 1.1.1
 * `capability_netadmin` option of `listen` directive to preserve CAP_NET_ADMIN for workers
