@@ -350,6 +350,13 @@ static ngx_command_t  ngx_http_ssl_commands[] = {
       offsetof(ngx_http_ssl_srv_conf_t, ktls),
       NULL },
 
+    { ngx_string("ssl_ktls_rx"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_ssl_srv_conf_t, ktls_rx),
+      NULL },
+
       ngx_null_command
 };
 
@@ -887,6 +894,8 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 #ifdef SSL_MODE_NO_KTLS_TX
         SSL_CTX_set_mode(conf->ssl.ctx, SSL_MODE_NO_KTLS_TX);
 #endif
+    }
+    if (!conf->ktls_rx) {
 #ifdef SSL_MODE_NO_KTLS_RX
         SSL_CTX_set_mode(conf->ssl.ctx, SSL_MODE_NO_KTLS_RX);
 #endif

@@ -49,6 +49,7 @@ typedef struct {
     ngx_str_t                       ciphers;
     ngx_flag_t                      prefer_chacha;
     ngx_flag_t                      ktls;
+    ngx_flag_t                      ktls_rx;
 
     ngx_array_t                    *passwords;
     ngx_array_t                    *conf_commands;
