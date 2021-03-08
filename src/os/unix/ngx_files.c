@@ -98,7 +98,6 @@ ngx_preadv2_file(ngx_file_t *file, u_char *buf, size_t size, off_t offset)
         left = file->info.st_size - offset;
         posix_fadvise(file->fd, offset, left, POSIX_FADV_SEQUENTIAL);
 #endif
-        return NGX_AGAIN;
     }
 
     file->offset += n;
@@ -180,6 +179,8 @@ ngx_thread_read(ngx_file_t *file, u_char *buf, size_t size, off_t offset,
     ngx_thread_file_ctx_t  *ctx;
 #if (NGX_HAVE_PREADV2_NOWAIT)
     ssize_t  n;
+
+    n = 0;
 #endif
 
     ngx_log_debug4(NGX_LOG_DEBUG_CORE, file->log, 0,
@@ -191,11 +192,19 @@ ngx_thread_read(ngx_file_t *file, u_char *buf, size_t size, off_t offset,
     if (task == NULL) {
 #if (NGX_HAVE_PREADV2_NOWAIT)
         n = ngx_preadv2_file(file, buf, size, offset);
-        if (n != NGX_AGAIN) {
+        if ((size_t) n == size) {
             ngx_log_debug2(NGX_LOG_DEBUG_CORE, file->log, 0,
                            "preadv2 non blocking: \"%s\" - %uz",
                            file->name.data, n);
             return n;
+        }
+
+        if (n != NGX_AGAIN) {
+            buf += n;
+            size -= n;
+            offset += n;
+        } else {
+            n = 0;
         }
 #endif
         task = ngx_thread_task_alloc(pool, sizeof(ngx_thread_file_ctx_t));
@@ -234,6 +243,9 @@ ngx_thread_read(ngx_file_t *file, u_char *buf, size_t size, off_t offset,
     ctx->buf = buf;
     ctx->size = size;
     ctx->offset = offset;
+#if (NGX_HAVE_PREADV2_NOWAIT)
+    ctx->nbytes = n;
+#endif
 
     if (file->thread_handler(task, file) != NGX_OK) {
         return NGX_ERROR;
@@ -260,7 +272,7 @@ ngx_thread_read_handler(void *data, ngx_log_t *log)
         ctx->err = ngx_errno;
 
     } else {
-        ctx->nbytes = n;
+        ctx->nbytes += n;
         ctx->err = 0;
     }
 
