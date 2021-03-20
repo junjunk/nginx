@@ -20,12 +20,14 @@ This is fork of nginx web server with my own useful patches and patches found in
 
 ### New options
 
-* Use `io_uring` as Async io interface. Based on work of Ping Zhao at Intel. Needs `ulimit -l unlimited
+* Use `io_uring` as Async io interface. Based on work of Ping Zhao at Intel. Needs `ulimit -l unlimited`
 * TLS Dynamic Record Size suggested by CloudFlare in https://blog.cloudflare.com/optimizing-tls-over-tcp-to-reduce-latency/
 * `ssl_prefer_chacha (on|off)` option to prefer ChaCha-Poly cipher in OpenSSL 1.1.1
 * `capability_netadmin` option of `listen` directive to preserve CAP_NET_ADMIN for workers
 * `tcp_congestion=(congestion_proto)` option of `listen` directive to change congestion control protocol of listen socket leaving system wide value unchanged and   thats why used to set up connections in upstream module
 * `ssl_ktls (on|off)` option to enable or disable Kernel TLS
+* `ssl_ktls_rx (on|off)` option to enable or disable Kernel TLS RX side only
+* `notsent_lowat=(size)` option of `listen` directive to change `notsent_lowat` option of listen socket
 
 ### Optimizations
 
