@@ -1083,6 +1083,33 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
 }
 
 
+#if (NGX_HAVE_TCP_INFO)
+static void
+ngx_info_listening_socket(ngx_cycle_t *cycle, ngx_listening_t *ls)
+{
+    struct tcp_info  ti;
+    socklen_t        len;
+
+    len = sizeof(struct tcp_info);
+    if (getsockopt(ls->fd, IPPROTO_TCP, TCP_INFO, &ti, &len) == -1) {
+        return;
+    }
+    /*
+     * tcpi_unacked -> Number of children ready for accept()
+     */
+    ngx_log_error(NGX_LOG_WARN, cycle->log, 0,
+                  "closing socket %V with %d connections ready to accept",
+                  &ls->addr_text, ti.tcpi_unacked);
+}
+#else
+static inline void
+ngx_info_listening_socket(ngx_cycle_t *cycle, ngx_int_t fd)
+{
+    return;
+}
+#endif
+
+
 void
 ngx_close_listening_sockets(ngx_cycle_t *cycle)
 {
@@ -1126,6 +1153,11 @@ ngx_close_listening_sockets(ngx_cycle_t *cycle)
 
         ngx_log_debug2(NGX_LOG_DEBUG_CORE, cycle->log, 0,
                        "close listening %V #%d ", &ls[i].addr_text, ls[i].fd);
+        /*
+         * Let's log amount of ready to accept connections before closing
+         * listening socket
+         */
+        ngx_info_listening_socket(cycle, &ls[i]);
 
         if (ngx_close_socket(ls[i].fd) == -1) {
             ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_socket_errno,
