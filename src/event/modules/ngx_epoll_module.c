@@ -104,6 +104,9 @@ struct io_event {
 typedef struct {
     ngx_uint_t  events;
     ngx_uint_t  aio_requests;
+#if (NGX_HAVE_FILE_IOURING)
+    ngx_uint_t  uring_requests;
+#endif
 } ngx_epoll_conf_t;
 
 #if (NGX_HAVE_FILE_AIO)
@@ -218,6 +221,15 @@ static ngx_command_t  ngx_epoll_commands[] = {
       offsetof(ngx_epoll_conf_t, aio_requests),
       NULL },
 
+#if (NGX_HAVE_FILE_IOURING)
+    { ngx_string("worker_uring_requests"),
+      NGX_EVENT_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      0,
+      offsetof(ngx_epoll_conf_t, uring_requests),
+      NULL },
+#endif
+
       ngx_null_command
 };
 
@@ -270,7 +282,7 @@ ngx_epoll_aio_init(ngx_cycle_t *cycle, ngx_epoll_conf_t *epcf)
 {
     struct epoll_event  ee;
 
-    if (io_uring_queue_init_params(32763, &ngx_ring, &ngx_ring_params) < 0) {
+    if (io_uring_queue_init_params(epcf->uring_requests, &ngx_ring, &ngx_ring_params) < 0) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
                       "io_uring_queue_init_params() failed");
         goto failed;
@@ -1196,6 +1208,9 @@ ngx_epoll_create_conf(ngx_cycle_t *cycle)
 
     epcf->events = NGX_CONF_UNSET;
     epcf->aio_requests = NGX_CONF_UNSET;
+#if (NGX_HAVE_FILE_IOURING)
+    epcf->uring_requests = NGX_CONF_UNSET;
+#endif
 
     return epcf;
 }
@@ -1208,6 +1223,9 @@ ngx_epoll_init_conf(ngx_cycle_t *cycle, void *conf)
 
     ngx_conf_init_uint_value(epcf->events, 512);
     ngx_conf_init_uint_value(epcf->aio_requests, 32);
+#if (NGX_HAVE_FILE_IOURING)
+    ngx_conf_init_uint_value(epcf->uring_requests, 32);
+#endif
 
     return NGX_CONF_OK;
 }
