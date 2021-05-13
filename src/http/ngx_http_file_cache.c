@@ -1772,8 +1772,8 @@ ngx_http_file_cache_forced_expire(ngx_http_file_cache_t *cache)
         ngx_queue_insert_head(&cache->sh->queue, &fcn->queue);
 
         ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
-                      "ignore long locked inactive cache entry %*s, count:%d",
-                      (size_t) 2 * NGX_HTTP_CACHE_KEY_LEN, key, fcn->count);
+                      "ignore long locked inactive cache entry %*s, count:%d, cache path %V",
+                      (size_t) 2 * NGX_HTTP_CACHE_KEY_LEN, key, fcn->count, &path->name);
 
         if (sentinel == NULL) {
             sentinel = q;
@@ -1878,8 +1878,8 @@ ngx_http_file_cache_expire(ngx_http_file_cache_t *cache)
         ngx_queue_insert_head(&cache->sh->queue, &fcn->queue);
 
         ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
-                      "ignore long locked inactive cache entry %*s, count:%d",
-                      (size_t) 2 * NGX_HTTP_CACHE_KEY_LEN, key, fcn->count);
+                      "ignore long locked inactive cache entry %*s, count:%d, cache path %V",
+                      (size_t) 2 * NGX_HTTP_CACHE_KEY_LEN, key, fcn->count, &path->name);
 
 next:
 
