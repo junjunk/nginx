@@ -383,6 +383,12 @@ static ngx_http_variable_t  ngx_http_core_variables[] = {
 
     { ngx_string("tcpinfo_retrans"), NULL, ngx_http_variable_tcpinfo,
       5, NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
+    { ngx_string("tcpinfo_bytes_sent"), NULL, ngx_http_variable_tcpinfo,
+      6, NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
+    { ngx_string("tcpinfo_bytes_recv"), NULL, ngx_http_variable_tcpinfo,
+      7, NGX_HTTP_VAR_NOCACHEABLE, 0 },
 #endif
 
     { ngx_string("http_"), NULL, ngx_http_variable_unknown_header_in,
@@ -1155,6 +1161,14 @@ ngx_http_variable_tcpinfo(ngx_http_request_t *r, ngx_http_variable_value_t *v,
 
     case 5:
         value = ti->tcpi_retrans;
+        break;
+
+    case 6:
+        value = ti->tcpi_bytes_sent;
+        break;
+
+    case 7:
+        value = ti->tcpi_bytes_received;
         break;
 
     /* suppress warning */
