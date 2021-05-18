@@ -193,6 +193,10 @@ struct ngx_connection_s {
 #if (NGX_THREADS || NGX_COMPAT)
     ngx_thread_task_t  *sendfile_task;
 #endif
+
+#if (NGX_HAVE_TCP_INFO)
+    struct tcp_info    *ti;
+#endif
 };
 
 

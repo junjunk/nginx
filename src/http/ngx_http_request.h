@@ -436,6 +436,7 @@ struct ngx_http_request_s {
 
 #if (NGX_HAVE_TCP_INFO)
     struct tcp_info                  *ti;
+    struct tcp_info                  *ti_prev;
 #endif
 
     size_t                            limit_rate;

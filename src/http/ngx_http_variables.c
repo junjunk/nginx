@@ -1113,24 +1113,46 @@ static ngx_int_t
 ngx_http_variable_tcpinfo(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     uintptr_t data)
 {
-    struct tcp_info  *ti;
-    socklen_t        len;
-    uint32_t         value;
+    ngx_connection_t *c;
+    struct tcp_info  *ti, *ti_prev;
+    socklen_t         len;
+    uint32_t          value;
 
+    c = r->connection;
     len = sizeof(struct tcp_info);
+
+    /* take previous values from connection for keepalived connections */
+    if (!r->ti_prev) {
+        r->ti_prev = c->ti;
+    }
+
+    /* if previous values are empty - set zero values. current values will be
+     * stored in connection a bit later
+     */
+    if (!r->ti_prev) {
+        r->ti_prev = ngx_pnalloc(r->pool, len);
+        if (r->ti_prev == NULL) {
+            return NGX_ERROR;
+        }
+        ngx_memset(r->ti_prev, 0, len);
+    }
+
+    ti_prev = r->ti_prev;
     ti = r->ti;
     if (ti == NULL) {
-        ti = ngx_pnalloc(r->pool, len);
+        /* take connection pool because this values will be stored in connection */
+        ti = ngx_pnalloc(c->pool, len);
         if (ti == NULL) {
             return NGX_ERROR;
         }
 
         if (getsockopt(r->connection->fd, IPPROTO_TCP, TCP_INFO, ti, &len) == -1) {
             v->not_found = 1;
-            ngx_pfree(r->pool, ti);
+            ngx_pfree(c->pool, ti);
             return NGX_OK;
         }
         r->ti = ti;
+        c->ti = ti;
     }
 
     v->data = ngx_pnalloc(r->pool, NGX_INT32_LEN);
@@ -1154,21 +1176,21 @@ ngx_http_variable_tcpinfo(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     case 3:
         value = ti->tcpi_rcv_space;
         break;
-
+    /* values below should be difference with previous for keep-alived connection */
     case 4:
-        value = ti->tcpi_lost;
+        value = ti->tcpi_lost - ti_prev->tcpi_lost;
         break;
 
     case 5:
-        value = ti->tcpi_retrans;
+        value = ti->tcpi_retrans - ti_prev->tcpi_retrans;
         break;
 
     case 6:
-        value = ti->tcpi_bytes_sent;
+        value = ti->tcpi_bytes_sent - ti_prev->tcpi_bytes_sent;
         break;
 
     case 7:
-        value = ti->tcpi_bytes_received;
+        value = ti->tcpi_bytes_received - ti_prev->tcpi_bytes_received;
         break;
 
     /* suppress warning */
