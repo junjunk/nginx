@@ -1184,7 +1184,7 @@ ngx_http_variable_tcpinfo(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     case 5:
         value = ti->tcpi_retrans - ti_prev->tcpi_retrans;
         break;
-
+#if (NGX_HAVE_TCP_INFO_EXT)
     case 6:
         value = ti->tcpi_bytes_sent - ti_prev->tcpi_bytes_sent;
         break;
@@ -1192,7 +1192,7 @@ ngx_http_variable_tcpinfo(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     case 7:
         value = ti->tcpi_bytes_received - ti_prev->tcpi_bytes_received;
         break;
-
+#endif
     /* suppress warning */
     default:
         value = 0;

@@ -447,25 +447,36 @@ ngx_feature_libs=
 ngx_feature_test="setsockopt(0, IPPROTO_IPV6, IPV6_RECVPKTINFO, NULL, 0)"
 . auto/feature
 
+# Linux way to have TCP_DEFER_ACCEPT
 
 ngx_feature="TCP_DEFER_ACCEPT"
 ngx_feature_name="NGX_HAVE_DEFERRED_ACCEPT"
 ngx_feature_run=no
 ngx_feature_incs="#include <sys/socket.h>
                   #include <netinet/in.h>
-                  #include <netinet/tcp.h>"
+                  #include <linux/tcp.h>"
 ngx_feature_path=
 ngx_feature_libs=
 ngx_feature_test="setsockopt(0, IPPROTO_TCP, TCP_DEFER_ACCEPT, NULL, 0)"
 . auto/feature
 
+# Check UNIX way
+
+if [ $ngx_found = no ]; then
+
+    ngx_feature_incs="#include <sys/socket.h>
+                      #include <netinet/in.h>
+                      #include <netinet/tcp.h>"
+    . auto/feature
+
+fi
 
 ngx_feature="TCP_KEEPIDLE"
 ngx_feature_name="NGX_HAVE_KEEPALIVE_TUNABLE"
 ngx_feature_run=no
 ngx_feature_incs="#include <sys/socket.h>
                   #include <netinet/in.h>
-                  #include <netinet/tcp.h>"
+                  #include <linux/tcp.h>"
 ngx_feature_path=
 ngx_feature_libs=
 ngx_feature_test="setsockopt(0, IPPROTO_TCP, TCP_KEEPIDLE, NULL, 0);
@@ -473,17 +484,39 @@ ngx_feature_test="setsockopt(0, IPPROTO_TCP, TCP_KEEPIDLE, NULL, 0);
                   setsockopt(0, IPPROTO_TCP, TCP_KEEPCNT, NULL, 0)"
 . auto/feature
 
+# Check UNIX way
+
+if [ $ngx_found = no ]; then
+
+    ngx_feature_incs="#include <sys/socket.h>
+                      #include <netinet/in.h>
+                      #include <netinet/tcp.h>"
+    . auto/feature
+
+fi
+
 
 ngx_feature="TCP_FASTOPEN"
 ngx_feature_name="NGX_HAVE_TCP_FASTOPEN"
 ngx_feature_run=no
 ngx_feature_incs="#include <sys/socket.h>
                   #include <netinet/in.h>
-                  #include <netinet/tcp.h>"
+                  #include <linux/tcp.h>"
 ngx_feature_path=
 ngx_feature_libs=
 ngx_feature_test="setsockopt(0, IPPROTO_TCP, TCP_FASTOPEN, NULL, 0)"
 . auto/feature
+
+# Check UNIX way
+
+if [ $ngx_found = no ]; then
+
+    ngx_feature_incs="#include <sys/socket.h>
+                      #include <netinet/in.h>
+                      #include <netinet/tcp.h>"
+    . auto/feature
+
+fi
 
 
 ngx_feature="TCP_INFO"
@@ -491,7 +524,7 @@ ngx_feature_name="NGX_HAVE_TCP_INFO"
 ngx_feature_run=no
 ngx_feature_incs="#include <sys/socket.h>
                   #include <netinet/in.h>
-                  #include <netinet/tcp.h>"
+                  #include <linux/tcp.h>"
 ngx_feature_path=
 ngx_feature_libs=
 ngx_feature_test="socklen_t optlen = sizeof(struct tcp_info);
@@ -502,6 +535,38 @@ ngx_feature_test="socklen_t optlen = sizeof(struct tcp_info);
                   ti.tcpi_rcv_space = 0;
                   getsockopt(0, IPPROTO_TCP, TCP_INFO, &ti, &optlen)"
 . auto/feature
+
+# Check UNIX way
+
+if [ $ngx_found = no ]; then
+
+    ngx_feature_incs="#include <sys/socket.h>
+                      #include <netinet/in.h>
+                      #include <netinet/tcp.h>"
+    . auto/feature
+
+else
+
+    ngx_feature="TCP_INFO_EXT"
+    ngx_feature_name="NGX_HAVE_TCP_INFO_EXT"
+    ngx_feature_run=no
+    ngx_feature_incs="#include <sys/socket.h>
+                      #include <netinet/in.h>
+                      #include <linux/tcp.h>"
+    ngx_feature_path=
+    ngx_feature_libs=
+    ngx_feature_test="socklen_t optlen = sizeof(struct tcp_info);
+                      struct tcp_info ti;
+                      ti.tcpi_rtt = 0;
+                      ti.tcpi_rttvar = 0;
+                      ti.tcpi_snd_cwnd = 0;
+                      ti.tcpi_rcv_space = 0;
+                      ti.tcpi_bytes_sent = 0;
+                      ti.tcpi_bytes_received = 0;
+                      getsockopt(0, IPPROTO_TCP, TCP_INFO, &ti, &optlen)"
+    . auto/feature
+
+fi
 
 
 ngx_feature="accept4()"
