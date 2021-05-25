@@ -130,6 +130,7 @@ struct ngx_http_upstream_srv_conf_s {
     ngx_uint_t                       line;
     in_port_t                        port;
     ngx_uint_t                       no_port;  /* unsigned no_port:1 */
+    ngx_flag_t                       use_hostname;
 
 #if (NGX_HTTP_UPSTREAM_ZONE)
     ngx_shm_zone_t                  *shm_zone;
@@ -338,6 +339,8 @@ struct ngx_http_upstream_s {
 #if (NGX_HTTP_CACHE)
     ngx_array_t                     *caches;
 #endif
+    ngx_chain_t                     *request_header_host;
+    ngx_buf_t                       *request_header_host_buf;
 
     ngx_http_upstream_headers_in_t   headers_in;
 
@@ -401,6 +404,7 @@ struct ngx_http_upstream_s {
     unsigned                         request_body_sent:1;
     unsigned                         request_body_blocked:1;
     unsigned                         header_sent:1;
+    unsigned                         header_ready:1;
 };
 
 

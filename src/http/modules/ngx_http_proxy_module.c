@@ -1241,12 +1241,12 @@ static ngx_int_t
 ngx_http_proxy_create_request(ngx_http_request_t *r)
 {
     size_t                        len, uri_len, loc_len, body_len,
-                                  key_len, val_len;
+                                  key_len, val_len, req_len, host_hdr_len;
     uintptr_t                     escape;
     ngx_buf_t                    *b;
     ngx_str_t                     method;
-    ngx_uint_t                    i, unparsed_uri;
-    ngx_chain_t                  *cl, *body;
+    ngx_uint_t                    i, unparsed_uri, skip_first;
+    ngx_chain_t                  *cl, *body, *rcl;
     ngx_list_part_t              *part;
     ngx_table_elt_t              *header;
     ngx_http_upstream_t          *u;
@@ -1256,8 +1256,10 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     ngx_http_script_engine_t      e, le;
     ngx_http_proxy_loc_conf_t    *plcf;
     ngx_http_script_len_code_pt   lcode;
+    ngx_http_upstream_srv_conf_t *uscf;
 
     u = r->upstream;
+    uscf = u->conf->upstream;
 
     plcf = ngx_http_get_module_loc_conf(r, ngx_http_proxy_module);
 
@@ -1288,12 +1290,13 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         ctx->head = 1;
     }
 
-    len = method.len + 1 + sizeof(ngx_http_proxy_version) - 1
-          + sizeof(CRLF) - 1;
+    req_len = method.len + 1 + sizeof(ngx_http_proxy_version) - 1
+            + sizeof(CRLF) - 1;
 
     escape = 0;
     loc_len = 0;
     unparsed_uri = 0;
+    skip_first = 0;
 
     if (plcf->proxy_lengths && ctx->vars.uri.len) {
         uri_len = ctx->vars.uri.len;
@@ -1321,18 +1324,18 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         return NGX_ERROR;
     }
 
-    len += uri_len;
+    req_len += uri_len;
 
     ngx_memzero(&le, sizeof(ngx_http_script_engine_t));
 
     ngx_http_script_flush_no_cacheable_variables(r, plcf->body_flushes);
     ngx_http_script_flush_no_cacheable_variables(r, headers->flushes);
 
+    body_len = 0;
     if (plcf->body_lengths) {
         le.ip = plcf->body_lengths->elts;
         le.request = r;
         le.flushed = 1;
-        body_len = 0;
 
         while (*(uintptr_t *) le.ip) {
             lcode = *(ngx_http_script_len_code_pt *) le.ip;
@@ -1340,7 +1343,6 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         }
 
         ctx->internal_body_length = body_len;
-        len += body_len;
 
     } else if (r->headers_in.chunked && r->reading_body) {
         ctx->internal_body_length = -1;
@@ -1354,6 +1356,19 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     le.request = r;
     le.flushed = 1;
 
+    /*
+     * if we configured "use_hostname" in upstream section then
+     * we should accout first header separately. Be sure that first
+     * header is "Host:" in both cache and proxy headers. This header
+     * will be added later in separate chain.
+     */
+
+    if (uscf->use_hostname == 1) {
+       skip_first = 1;
+       host_hdr_len = 0;
+    }
+
+    len = 0;
     while (*(uintptr_t *) le.ip) {
 
         lcode = *(ngx_http_script_len_code_pt *) le.ip;
@@ -1363,6 +1378,13 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
             lcode = *(ngx_http_script_len_code_pt *) le.ip;
         }
         le.ip += sizeof(uintptr_t);
+
+        if (skip_first == 1) {
+            skip_first = 0;
+            host_hdr_len = val_len == 0 ? val_len :
+                        key_len + sizeof(": ") - 1 + val_len + sizeof(CRLF) - 1;
+            continue;
+        }
 
         if (val_len == 0) {
             continue;
@@ -1400,7 +1422,13 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     }
 
 
-    b = ngx_create_temp_buf(r->pool, len);
+    if (uscf->use_hostname == 1) {
+        /* create separate chain links */
+        b = ngx_create_temp_buf(r->pool, req_len);
+    } else {
+        b = ngx_create_temp_buf(r->pool, req_len + body_len + len);
+    }
+
     if (b == NULL) {
         return NGX_ERROR;
     }
@@ -1409,6 +1437,9 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     if (cl == NULL) {
         return NGX_ERROR;
     }
+
+    /* remember start point for chain */
+    rcl = cl;
 
     cl->buf = b;
 
@@ -1458,6 +1489,52 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
                              sizeof(ngx_http_proxy_version) - 1);
     }
 
+    /* request line is copied. create separate chain link for "Host" header */
+
+    if (uscf->use_hostname == 1) {
+        /* create separate chain links */
+        ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "http proxy header:%N\"%*s\"",
+                    (size_t) (b->last - b->pos), b->pos);
+        if (host_hdr_len) {
+            b->flush = 1;
+            b = ngx_create_temp_buf(r->pool, host_hdr_len);
+            if (b == NULL) {
+                return NGX_ERROR;
+            }
+
+            cl->next = ngx_alloc_chain_link(r->pool);
+            if (cl->next == NULL) {
+                return NGX_ERROR;
+            }
+            cl = cl->next;
+            cl->buf = b;
+            u->request_header_host = cl;
+            u->request_header_host_buf = b;
+        } else {
+            /* create one empty chain to fill later */
+            cl->next = ngx_alloc_chain_link(r->pool);
+            if (cl->next == NULL) {
+                return NGX_ERROR;
+            }
+            cl = cl->next;
+            u->request_header_host = cl;
+
+            b = ngx_create_temp_buf(r->pool, body_len + len);
+            if (b == NULL) {
+                return NGX_ERROR;
+            }
+            cl->next = ngx_alloc_chain_link(r->pool);
+            if (cl->next == NULL) {
+                return NGX_ERROR;
+            }
+            cl = cl->next;
+            cl->buf = b;
+
+        }
+    }
+
+
     ngx_memzero(&e, sizeof(ngx_http_script_engine_t));
 
     e.ip = headers->values->elts;
@@ -1466,6 +1543,11 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     e.flushed = 1;
 
     le.ip = headers->lengths->elts;
+
+    /* skip first header "Host:" if "use_hostname" set */
+    if (uscf->use_hostname == 1 && host_hdr_len) {
+        skip_first = 1;
+    }
 
     while (*(uintptr_t *) le.ip) {
 
@@ -1503,6 +1585,25 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         e.ip += sizeof(uintptr_t);
 
         *e.pos++ = CR; *e.pos++ = LF;
+
+        if (skip_first == 1) {
+            skip_first = 0;
+            b->last = e.pos;
+
+            /* create last chain for all other data */
+            b = ngx_create_temp_buf(r->pool, body_len + len);
+            if (b == NULL) {
+                return NGX_ERROR;
+            }
+            cl->next = ngx_alloc_chain_link(r->pool);
+            if (cl->next == NULL) {
+                return NGX_ERROR;
+            }
+            cl = cl->next;
+            cl->buf = b;
+            e.pos = b->last;
+        }
+
     }
 
     b->last = e.pos;
@@ -1545,7 +1646,6 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         }
     }
 
-
     /* add "\r\n" at the header end */
     *b->last++ = CR; *b->last++ = LF;
 
@@ -1568,7 +1668,7 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
 
     if (r->request_body_no_buffering) {
 
-        u->request_bufs = cl;
+        u->request_bufs = rcl;
 
         if (ctx->internal_chunked) {
             u->output.output_filter = ngx_http_proxy_body_output_filter;
@@ -1578,7 +1678,7 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     } else if (plcf->body_values == NULL && plcf->upstream.pass_request_body) {
 
         body = u->request_bufs;
-        u->request_bufs = cl;
+        u->request_bufs = rcl;
 
         while (body) {
             b = ngx_alloc_buf(r->pool);
@@ -1600,12 +1700,15 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         }
 
     } else {
-        u->request_bufs = cl;
+        u->request_bufs = rcl;
     }
 
     b->flush = 1;
     cl->next = NULL;
 
+    if (uscf->use_hostname != 1) {
+        u->header_ready = 1;
+    }
     return NGX_OK;
 }
 

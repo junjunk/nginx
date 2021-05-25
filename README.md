@@ -28,6 +28,7 @@ This is fork of nginx web server with my own useful patches and patches found in
 * `ssl_ktls (on|off)` option to enable or disable Kernel TLS
 * `ssl_ktls_rx (on|off)` option to enable or disable Kernel TLS RX side only
 * `notsent_lowat=(size)` option of `listen` directive to change `notsent_lowat` option of listen socket
+* `use_hostname (on|off)` option of `upstream` block will put hostname of upstream server into `Host:` header of request to upstream. It will not change behavior (mean it will put $proxy_host value) if server is IP address
 
 ### Optimizations
 

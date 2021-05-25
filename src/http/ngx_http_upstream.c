@@ -343,6 +343,13 @@ static ngx_command_t  ngx_http_upstream_commands[] = {
       0,
       NULL },
 
+    { ngx_string("use_hostname"),
+      NGX_HTTP_UPS_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(struct ngx_http_upstream_srv_conf_s, use_hostname),
+      NULL },
+
       ngx_null_command
 };
 
@@ -2282,6 +2289,84 @@ ngx_http_upstream_send_request_body(ngx_http_request_t *r,
 
 
 static void
+ngx_http_upstream_prepare_host_header(ngx_http_request_t *r,
+    ngx_http_upstream_t *u)
+{
+    size_t                               len;
+    ngx_buf_t                           *b;
+    ngx_uint_t                           hlen;
+    u_char                              *pport;
+    ngx_chain_t                         *cl;
+    ngx_http_upstream_rr_peer_t         *rrc;
+    ngx_http_upstream_rr_peer_data_t    *rrp;
+
+    /*
+     * we should parse header as usual if there is an IP address
+     * in server name configuration
+     */
+    rrp = u->peer.data;
+    if (!rrp || !(rrc = rrp->current)) {
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                       "http upstream prepare host header fallback: "
+                       "no rr values");
+        goto fallback;
+    }
+
+    if (rrc->server.len == u->peer.name->len &&
+        !ngx_strncmp(rrc->server.data, u->peer.name->data,
+                    rrc->server.len)) {
+        /* server name is ip address, fallback */
+        ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "http upstream prepare host header fallback ip addr: %V = %V",
+                   &rrc->server, u->peer.name);
+        goto fallback;
+    }
+
+    /* server could be ip without port. fallback in that case too */
+    if (!ngx_strchr(rrc->server.data, ':')) {
+        pport = (u_char *)ngx_strchr(u->peer.name->data, ':');
+        hlen = pport ? pport - u->peer.name->data : 0;
+        if (hlen == rrc->server.len &&
+            !ngx_strncmp(rrc->server.data, u->peer.name->data, hlen)) {
+            /* server name is ip address, fallback */
+            ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                       "http upstream prepare host header fallback ip addr: %V = %V",
+                       &rrc->server, u->peer.name);
+            goto fallback;
+
+        }
+    }
+
+    len = sizeof("Host: ") + sizeof(CRLF) - 2;
+    len += rrc->server.len;
+
+    b = ngx_create_temp_buf(r->pool, len);
+    if (b == NULL) {
+        ngx_http_upstream_finalize_request(r, u, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
+
+    /* take header "Host" chain */
+    cl = u->request_header_host;
+    cl->buf = b;
+
+    ngx_sprintf(b->last, "Host: %V\r\n", &rrp->current->server);
+    b->last += len;
+
+    u->header_ready = 1;
+
+    return;
+    /* use this for default processing */
+fallback:
+    if (u->request_header_host_buf) {
+        u->request_header_host->buf = u->request_header_host_buf;
+    }
+    u->header_ready = 1;
+    return;
+}
+
+
+static void
 ngx_http_upstream_send_request_handler(ngx_http_request_t *r,
     ngx_http_upstream_t *u)
 {
@@ -2312,6 +2397,11 @@ ngx_http_upstream_send_request_handler(ngx_http_request_t *r,
         (void) ngx_handle_write_event(c->write, 0);
 
         return;
+    }
+
+    /* prepare "Host:" header once */
+    if (!u->header_ready) {
+        ngx_http_upstream_prepare_host_header(r, u);
     }
 
     ngx_http_upstream_send_request(r, u, 1);
@@ -4257,6 +4347,10 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
         u->peer.sockaddr = NULL;
     }
 
+    if (u->header_ready && u->upstream->use_hostname) {
+        u->header_ready = 0;
+    }
+
     if (ft_type == NGX_HTTP_UPSTREAM_FT_TIMEOUT) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, NGX_ETIMEDOUT,
                       "upstream timed out");
@@ -6147,6 +6241,7 @@ ngx_http_upstream_add(ngx_conf_t *cf, ngx_url_t *u, ngx_uint_t flags)
     uscf->line = cf->conf_file->line;
     uscf->port = u->port;
     uscf->no_port = u->no_port;
+    uscf->use_hostname = NGX_CONF_UNSET;
 
     if (u->naddrs == 1 && (u->port || u->family == AF_UNIX)) {
         uscf->servers = ngx_array_create(cf->pool, 1,
