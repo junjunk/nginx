@@ -482,6 +482,44 @@ ngx_conf_bitmask_t  ngx_http_upstream_ignore_headers_masks[] = {
 };
 
 
+static ngx_int_t
+ngx_http_upstream_check_hostname_ip(ngx_http_request_t *r)
+{
+    u_char                              *pport;
+    size_t                               hlen;
+    ngx_http_upstream_t                 *u;
+    ngx_http_upstream_rr_peer_t         *rrc;
+    ngx_http_upstream_rr_peer_data_t    *rrp;
+
+    u = r->upstream;
+
+    rrp = u->peer.data;
+    if (!rrp || !(rrc = rrp->current)) {
+        ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "http upstream check hostname ip: peer is not selected");
+
+        return NGX_ERROR;
+    }
+    if (rrc->server.len == u->peer.name->len &&
+        !ngx_strncmp(rrc->server.data, u->peer.name->data,
+                    rrc->server.len)) {
+        return NGX_ERROR;
+    }
+
+    /* server could be ip without port, check this case too */
+    if (!ngx_strchr(rrc->server.data, ':')) {
+        pport = (u_char *)ngx_strchr(u->peer.name->data, ':');
+        hlen = pport ? pport - u->peer.name->data : 0;
+        if (hlen == rrc->server.len &&
+            !ngx_strncmp(rrc->server.data, u->peer.name->data, hlen)) {
+            return NGX_ERROR;
+        }
+    }
+
+    return NGX_OK;
+}
+
+
 ngx_int_t
 ngx_http_upstream_create(ngx_http_request_t *r)
 {
@@ -1675,6 +1713,7 @@ ngx_http_upstream_ssl_init_connection(ngx_http_request_t *r,
 {
     ngx_int_t                  rc;
     ngx_http_core_loc_conf_t  *clcf;
+    ngx_http_upstream_rr_peer_data_t *rrp;
 
     if (ngx_http_upstream_test_connect(c) != NGX_OK) {
         ngx_http_upstream_next(r, u, NGX_HTTP_UPSTREAM_FT_ERROR);
@@ -1692,6 +1731,12 @@ ngx_http_upstream_ssl_init_connection(ngx_http_request_t *r,
 
     c->sendfile = 0;
     u->output.sendfile = 0;
+
+    if (u->conf->upstream->use_hostname == 1
+        && ngx_http_upstream_check_hostname_ip(r) == NGX_OK) {
+        rrp = (ngx_http_upstream_rr_peer_data_t *) u->peer.data;
+        u->ssl_name = rrp->current->server;
+    }
 
     if (u->conf->ssl_server_name || u->conf->ssl_verify) {
         if (ngx_http_upstream_ssl_name(r, u, c) != NGX_OK) {
@@ -2294,8 +2339,6 @@ ngx_http_upstream_prepare_host_header(ngx_http_request_t *r,
 {
     size_t                               len;
     ngx_buf_t                           *b;
-    ngx_uint_t                           hlen;
-    u_char                              *pport;
     ngx_chain_t                         *cl;
     ngx_http_upstream_rr_peer_t         *rrc;
     ngx_http_upstream_rr_peer_data_t    *rrp;
@@ -2312,29 +2355,12 @@ ngx_http_upstream_prepare_host_header(ngx_http_request_t *r,
         goto fallback;
     }
 
-    if (rrc->server.len == u->peer.name->len &&
-        !ngx_strncmp(rrc->server.data, u->peer.name->data,
-                    rrc->server.len)) {
+    if (ngx_http_upstream_check_hostname_ip(r) != NGX_OK) {
         /* server name is ip address, fallback */
         ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "http upstream prepare host header fallback ip addr: %V = %V",
                    &rrc->server, u->peer.name);
         goto fallback;
-    }
-
-    /* server could be ip without port. fallback in that case too */
-    if (!ngx_strchr(rrc->server.data, ':')) {
-        pport = (u_char *)ngx_strchr(u->peer.name->data, ':');
-        hlen = pport ? pport - u->peer.name->data : 0;
-        if (hlen == rrc->server.len &&
-            !ngx_strncmp(rrc->server.data, u->peer.name->data, hlen)) {
-            /* server name is ip address, fallback */
-            ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                       "http upstream prepare host header fallback ip addr: %V = %V",
-                       &rrc->server, u->peer.name);
-            goto fallback;
-
-        }
     }
 
     len = sizeof("Host: ") + sizeof(CRLF) - 2;
@@ -4347,7 +4373,7 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
         u->peer.sockaddr = NULL;
     }
 
-    if (u->header_ready && u->upstream->use_hostname) {
+    if (u->header_ready && u->upstream->use_hostname == 1) {
         u->header_ready = 0;
     }
 
