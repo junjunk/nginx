@@ -31,6 +31,8 @@
 #define NGX_LOG_DEBUG_MAIL        0x200
 #define NGX_LOG_DEBUG_STREAM      0x400
 
+#define NGX_LOG_STACK_MAX_DEPTH   16
+
 /*
  * do not forget to update debug_levels[] in src/core/ngx_log.c
  * after the adding a new debug level
@@ -236,7 +238,7 @@ ngx_int_t ngx_log_open_default(ngx_cycle_t *cycle);
 ngx_int_t ngx_log_redirect_stderr(ngx_cycle_t *cycle);
 ngx_log_t *ngx_log_get_file_log(ngx_log_t *head);
 char *ngx_log_set_log(ngx_conf_t *cf, ngx_log_t **head);
-
+void ngx_cdecl ngx_log_stacktrace(ngx_uint_t level, ngx_uint_t depth);
 
 /*
  * ngx_write_stderr() cannot be implemented as macro, since

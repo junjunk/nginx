@@ -7,7 +7,7 @@
 
 #include <ngx_config.h>
 #include <ngx_core.h>
-
+#include <execinfo.h>
 
 static char *ngx_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *ngx_log_set_levels(ngx_conf_t *cf, ngx_log_t *log);
@@ -281,6 +281,30 @@ ngx_log_stderr(ngx_err_t err, const char *fmt, ...)
     ngx_linefeed(p);
 
     (void) ngx_write_console(ngx_stderr, errstr, p - errstr);
+}
+
+
+void ngx_cdecl
+ngx_log_stacktrace(ngx_uint_t level, ngx_uint_t depth)
+{
+    ngx_int_t i, stack_depth;
+    void *stack_array[NGX_LOG_STACK_MAX_DEPTH];
+    char **stack_trace;
+
+    if (depth > NGX_LOG_STACK_MAX_DEPTH) {
+        depth = NGX_LOG_STACK_MAX_DEPTH;
+    }
+
+    stack_depth = backtrace(stack_array, depth);
+    stack_trace = backtrace_symbols(stack_array, stack_depth);
+    if (stack_trace == NULL) {
+        return;
+    }
+
+    for (i = 0; i < stack_depth; i++) {
+        ngx_log_error(level, ngx_cycle->log, 0, "%s", stack_trace[i]);
+    }
+    free(stack_trace);
 }
 
 
